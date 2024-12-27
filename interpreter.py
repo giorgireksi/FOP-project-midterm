@@ -198,3 +198,221 @@ class Print(AST):
 class Input(AST):
     def __init__(self):
         pass
+
+# --- Parser ---
+class Parser:
+    def __init__(self, lexer):
+        self.lexer = lexer
+        self.current_token = self.lexer.get_next_token()
+
+    def error(self):
+        raise Exception('Invalid syntax')
+
+    def eat(self, token_type):
+        if self.current_token.type == token_type:
+            self.current_token = self.lexer.get_next_token()
+        else:
+            self.error()
+
+    def program(self):
+        """program : compound_statement"""
+        node = self.compound_statement()
+        return node
+
+    def compound_statement(self):
+        """compound_statement : statement_list"""
+        nodes = self.statement_list()
+
+        root = Compound()
+        for node in nodes:
+            root.children.append(node)
+
+        return root
+
+    def statement_list(self):
+        """
+        statement_list : statement
+                       | statement SEMI statement_list
+        """
+        node = self.statement()
+        results = [node]
+        while self.current_token.type == SEMI:
+            self.eat(SEMI)
+            results.append(self.statement())
+
+        return results
+
+    def statement(self):
+        """
+        statement : compound_statement
+                  | assignment_statement
+                  | if_statement
+                  | while_statement
+                  | print_statement
+                  | input_statement
+                  | empty
+        """
+        if self.current_token.type == ID:
+            node = self.assignment_statement()
+        elif self.current_token.type == IF:
+            node = self.if_statement()
+        elif self.current_token.type == WHILE:
+            node = self.while_statement()
+        elif self.current_token.type == PRINT:
+            node = self.print_statement()
+        elif self.current_token.type == INPUT:
+            node = self.input_statement()
+        else:
+            node = self.empty()
+        return node
+    
+    def if_statement(self):
+        """if_statement : IF comparison compound_statement (ELSE compound_statement)?"""
+        self.eat(IF)
+        condition = self.comparison()
+        then_branch = self.compound_statement()
+        if self.current_token.type == ELSE:
+            self.eat(ELSE)
+            else_branch = self.compound_statement()
+        else:
+            else_branch = None
+        return If(condition, then_branch, else_branch)
+        
+    def while_statement(self):
+        """while_statement : WHILE comparison compound_statement"""
+        self.eat(WHILE)
+        condition = self.comparison()
+        body = self.compound_statement()
+        return While(condition, body)
+
+    def print_statement(self):
+        """print_statement : PRINT LPAREN expr RPAREN"""
+        self.eat(PRINT)
+        self.eat(LPAREN)
+        expr = self.expr()
+        self.eat(RPAREN)
+        return Print(expr)
+        
+    def input_statement(self):
+      """input_statement: INPUT LPAREN RPAREN"""
+      self.eat(INPUT)
+      self.eat(LPAREN)
+      self.eat(RPAREN)
+      return Input()
+
+    def assignment_statement(self):
+        """
+        assignment_statement : variable ASSIGN expr
+        """
+        left = self.variable()
+        token = self.current_token
+        self.eat(ASSIGN)
+        right = self.expr()
+        node = Assign(left, token, right)
+        return node
+
+    def variable(self):
+        """
+        variable : ID
+        """
+        node = Var(self.current_token)
+        self.eat(ID)
+        return node
+
+    def empty(self):
+        """An empty production"""
+        return NoOp()
+
+    def expr(self):
+        """
+        expr : term ((PLUS | MINUS) term)*
+        """
+        node = self.term()
+
+        while self.current_token.type in (PLUS, MINUS):
+            token = self.current_token
+            if token.type == PLUS:
+                self.eat(PLUS)
+            elif token.type == MINUS:
+                self.eat(MINUS)
+
+            node = BinOp(left=node, op=token, right=self.term())
+
+        return node
+
+    def term(self):
+        """term : factor ((MUL | DIV | MOD) factor)*"""
+        node = self.factor()
+
+        while self.current_token.type in (MUL, DIV, MOD):
+            token = self.current_token
+            if token.type == MUL:
+                self.eat(MUL)
+            elif token.type == DIV:
+                self.eat(DIV)
+            elif token.type == MOD:
+                self.eat(MOD)
+
+            node = BinOp(left=node, op=token, right=self.factor())
+
+        return node
+
+    def factor(self):
+        """factor : PLUS factor
+                  | MINUS factor
+                  | INTEGER
+                  | LPAREN expr RPAREN
+                  | variable
+        """
+        token = self.current_token
+        if token.type == PLUS:
+            self.eat(PLUS)
+            node = UnaryOp(token, self.factor())
+            return node
+        elif token.type == MINUS:
+            self.eat(MINUS)
+            node = UnaryOp(token, self.factor())
+            return node
+        elif token.type == INTEGER:
+            self.eat(INTEGER)
+            return Num(token)
+        elif token.type == LPAREN:
+            self.eat(LPAREN)
+            node = self.expr()
+            self.eat(RPAREN)
+            return node
+        else:
+            node = self.variable()
+            return node
+
+    def comparison(self):
+      """
+      comparison : expr (( EQ | NE | LT | LTE | GT | GTE ) expr)
+      """
+      node = self.expr()
+      
+      while self.current_token.type in (EQ, NE, LT, LTE, GT, GTE):
+        token = self.current_token
+        if token.type == EQ:
+          self.eat(EQ)
+        elif token.type == NE:
+          self.eat(NE)
+        elif token.type == LT:
+          self.eat(LT)
+        elif token.type == LTE:
+          self.eat(LTE)
+        elif token.type == GT:
+          self.eat(GT)
+        elif token.type == GTE:
+          self.eat(GTE)
+          
+        node = BinOp(left=node, op=token, right=self.expr())
+      
+      return node
+    
+    def parse(self):
+        node = self.program()
+        if self.current_token.type != EOF:
+            self.error()
+
+        return node
