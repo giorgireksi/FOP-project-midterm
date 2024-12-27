@@ -141,3 +141,60 @@ class Lexer:
       
     def error(self):
         raise Exception('Invalid character')
+
+# --- AST Nodes ---
+class AST:
+    pass
+
+class BinOp(AST):
+    def __init__(self, left, op, right):
+        self.left = left
+        self.token = self.op = op
+        self.right = right
+
+class Num(AST):
+    def __init__(self, token):
+        self.token = token
+        self.value = token.value
+
+class UnaryOp(AST):
+    def __init__(self, op, expr):
+        self.token = self.op = op
+        self.expr = expr
+
+class Compound(AST):
+    def __init__(self):
+        self.children = []
+
+class Assign(AST):
+    def __init__(self, left, op, right):
+        self.left = left
+        self.token = self.op = op
+        self.right = right
+
+class Var(AST):
+    def __init__(self, token):
+        self.token = token
+        self.value = token.value
+
+class NoOp(AST):
+    pass
+
+class If(AST):
+    def __init__(self, condition, then_branch, else_branch):
+        self.condition = condition
+        self.then_branch = then_branch
+        self.else_branch = else_branch
+        
+class While(AST):
+    def __init__(self, condition, body):
+        self.condition = condition
+        self.body = body
+        
+class Print(AST):
+    def __init__(self, expr):
+        self.expr = expr
+
+class Input(AST):
+    def __init__(self):
+        pass
