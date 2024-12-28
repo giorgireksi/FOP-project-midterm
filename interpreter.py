@@ -141,8 +141,8 @@ class Lexer:
       
     def error(self):
         raise Exception('Invalid character')
-
-# --- AST Nodes ---
+    
+    # --- AST Nodes ---
 class AST:
     pass
 
@@ -416,3 +416,131 @@ class Parser:
             self.error()
 
         return node
+
+# --- Interpreter ---
+class NodeVisitor:
+    def visit(self, node):
+        method_name = 'visit_' + type(node).__name__
+        visitor = getattr(self, method_name, self.generic_visit)
+        return visitor(node)
+
+    def generic_visit(self, node):
+        raise Exception(f'No visit_{type(node).__name__} method')
+
+class Interpreter(NodeVisitor):
+    def __init__(self, parser):
+        self.parser = parser
+        self.GLOBAL_SCOPE = {}
+
+    def visit_BinOp(self, node):
+        if node.op.type == PLUS:
+            return self.visit(node.left) + self.visit(node.right)
+        elif node.op.type == MINUS:
+            return self.visit(node.left) - self.visit(node.right)
+        elif node.op.type == MUL:
+            return self.visit(node.left) * self.visit(node.right)
+        elif node.op.type == DIV:
+            return self.visit(node.left) // self.visit(node.right)
+        elif node.op.type == MOD:
+            return self.visit(node.left) % self.visit(node.right)
+        elif node.op.type == LT:
+            return self.visit(node.left) < self.visit(node.right)
+        elif node.op.type == LTE:
+            return self.visit(node.left) <= self.visit(node.right)
+        elif node.op.type == GT:
+            return self.visit(node.left) > self.visit(node.right)
+        elif node.op.type == GTE:
+            return self.visit(node.left) >= self.visit(node.right)
+        elif node.op.type == EQ:
+            return self.visit(node.left) == self.visit(node.right)
+        elif node.op.type == NE:
+            return self.visit(node.left) != self.visit(node.right)
+
+    def visit_Num(self, node):
+        return node.value
+
+    def visit_UnaryOp(self, node):
+        op = node.op.type
+        if op == PLUS:
+            return +self.visit(node.expr)
+        elif op == MINUS:
+            return -self.visit(node.expr)
+
+    def visit_Compound(self, node):
+        for child in node.children:
+            self.visit(child)
+
+    def visit_Assign(self, node):
+        var_name = node.left.value
+        if self.GLOBAL_SCOPE.get(var_name) is None:
+          self.GLOBAL_SCOPE[var_name] = self.visit(node.right)
+        else:
+          raise Exception('Error: variable was previously declared')
+
+    def visit_Var(self, node):
+        var_name = node.value
+        val = self.GLOBAL_SCOPE.get(var_name)
+        if val is None:
+            raise NameError(var_name)
+        else:
+            return val
+
+    def visit_NoOp(self, node):
+        pass
+        
+    def visit_If(self, node):
+        if self.visit(node.condition):
+            self.visit(node.then_branch)
+        elif node.else_branch is not None:
+            self.visit(node.else_branch)
+
+    def visit_While(self, node):
+        while self.visit(node.condition):
+            self.visit(node.body)
+    
+    def visit_Print(self, node):
+        print(self.visit(node.expr))
+
+    def visit_Input(self, node):
+        val = int(input())
+        return val
+
+    def interpret(self):
+        tree = self.parser.parse()
+        return self.visit(tree)
+
+def execute_simplepy(code):
+  """Executes SimplePy code and returns the content printed to standard output."""
+  lexer = Lexer(code)
+  parser = Parser(lexer)
+  interpreter = Interpreter(parser)
+  interpreter.interpret()
+
+# --- Example Usage ---
+def main():
+    import sys
+    
+    if len(sys.argv) < 2:
+      print("Usage: python interpreter.py <filename.simpy>")
+      return
+    
+    filename = sys.argv[1]
+    
+    if not filename.endswith(".simpy"):
+        print("Error: Input file must have a .simpy extension")
+        return
+
+    try:
+      with open(filename, 'r') as file:
+          code = file.read()
+    except FileNotFoundError:
+        print(f"Error: File '{filename}' not found.")
+        return
+        
+    lexer = Lexer(code)
+    parser = Parser(lexer)
+    interpreter = Interpreter(parser)
+    interpreter.interpret()
+
+if __name__ == '__main__':
+    main()
