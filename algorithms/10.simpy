@@ -1,0 +1,16 @@
+n = input()
+a = 0
+b = 1
+i = 2
+if n == 1:
+  print(a)
+else:
+  if n == 2:
+    print(b)
+  else:
+    while i < n:
+      temp = a + b
+      a = b
+      b = temp
+      i = i + 1
+    print(b)
