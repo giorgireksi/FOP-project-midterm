@@ -6,8 +6,8 @@ This project implements a simple interpreter for "SimplePy," a minimal subset of
 
 ## Team Members
 
-- [Giorgi Babunashvili] -
-- [Rezi Gurguchiani] - 
+- [Giorgi Babunashvili] - giorgireksi
+- [Rezi Gurguchiani] - Rezi6
 
 
 ## Language Specification
