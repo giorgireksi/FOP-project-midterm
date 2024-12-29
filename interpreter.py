@@ -1,4 +1,5 @@
 import re
+import sys
 
 # --- Token Types ---
 INTEGER = 'INTEGER'
@@ -65,28 +66,37 @@ class Lexer:
             result += self.current_char
             self.advance()
         
+        token_type = ID  # Default to ID
+        # Keywords:
         if result.lower() == 'if':
-          return Token(IF, result)
+            token_type = IF
         elif result.lower() == 'else':
-          return Token(ELSE, result)
+            token_type = ELSE
         elif result.lower() == 'while':
-          return Token(WHILE, result)
+            token_type = WHILE
         elif result.lower() == 'print':
-          return Token(PRINT, result)
+            token_type = PRINT
         elif result.lower() == 'input':
-          return Token(INPUT, result)
+            token_type = INPUT
 
-        return Token(ID, result)
+        return Token(token_type, result)
 
     def get_next_token(self):
         while self.current_char is not None:
+            # Skip whitespace
             if self.current_char.isspace():
                 self.skip_whitespace()
                 continue
+
+            # Integer
             if self.current_char.isdigit():
                 return Token(INTEGER, self.integer())
+
+            # Identifier or Keyword
             if self.current_char.isalpha() or self.current_char == '_':
                 return self._id()
+
+            # Single-char tokens
             if self.current_char == '+':
                 self.advance()
                 return Token(PLUS, '+')
@@ -138,18 +148,18 @@ class Lexer:
             self.error()
 
         return Token(EOF, None)
-      
+
     def error(self):
         raise Exception('Invalid character')
-    
-    # --- AST Nodes ---
+
+# --- AST Nodes ---
 class AST:
     pass
 
 class BinOp(AST):
     def __init__(self, left, op, right):
         self.left = left
-        self.token = self.op = op
+        self.op = op
         self.right = right
 
 class Num(AST):
@@ -159,7 +169,7 @@ class Num(AST):
 
 class UnaryOp(AST):
     def __init__(self, op, expr):
-        self.token = self.op = op
+        self.op = op
         self.expr = expr
 
 class Compound(AST):
@@ -169,7 +179,7 @@ class Compound(AST):
 class Assign(AST):
     def __init__(self, left, op, right):
         self.left = left
-        self.token = self.op = op
+        self.op = op
         self.right = right
 
 class Var(AST):
@@ -196,8 +206,8 @@ class Print(AST):
         self.expr = expr
 
 class Input(AST):
-    def __init__(self):
-        pass
+    def __init__(self, var_name):
+        self.var_name = var_name
 
 # --- Parser ---
 class Parser:
@@ -252,32 +262,33 @@ class Parser:
                   | input_statement
                   | empty
         """
-        if self.current_token.type == ID:
+        tok_type = self.current_token.type
+
+        if tok_type == ID:
             node = self.assignment_statement()
-        elif self.current_token.type == IF:
+        elif tok_type == IF:
             node = self.if_statement()
-        elif self.current_token.type == WHILE:
+        elif tok_type == WHILE:
             node = self.while_statement()
-        elif self.current_token.type == PRINT:
+        elif tok_type == PRINT:
             node = self.print_statement()
-        elif self.current_token.type == INPUT:
+        elif tok_type == INPUT:
             node = self.input_statement()
         else:
             node = self.empty()
         return node
-    
+
     def if_statement(self):
         """if_statement : IF comparison compound_statement (ELSE compound_statement)?"""
         self.eat(IF)
         condition = self.comparison()
         then_branch = self.compound_statement()
+        else_branch = None
         if self.current_token.type == ELSE:
             self.eat(ELSE)
             else_branch = self.compound_statement()
-        else:
-            else_branch = None
         return If(condition, then_branch, else_branch)
-        
+
     def while_statement(self):
         """while_statement : WHILE comparison compound_statement"""
         self.eat(WHILE)
@@ -289,32 +300,30 @@ class Parser:
         """print_statement : PRINT LPAREN expr RPAREN"""
         self.eat(PRINT)
         self.eat(LPAREN)
-        expr = self.expr()
+        expr_node = self.expr()
         self.eat(RPAREN)
-        return Print(expr)
-        
+        return Print(expr_node)
+
     def input_statement(self):
-      """input_statement: INPUT LPAREN RPAREN"""
-      self.eat(INPUT)
-      self.eat(LPAREN)
-      self.eat(RPAREN)
-      return Input()
+        """input_statement : INPUT LPAREN RPAREN ID"""
+        # For usage like: input() x;
+        self.eat(INPUT)
+        self.eat(LPAREN)
+        self.eat(RPAREN)
+        var_name = self.current_token.value
+        self.eat(ID)
+        return Input(var_name)
 
     def assignment_statement(self):
-        """
-        assignment_statement : variable ASSIGN expr
-        """
+        """assignment_statement : variable ASSIGN expr"""
         left = self.variable()
-        token = self.current_token
+        op = self.current_token
         self.eat(ASSIGN)
         right = self.expr()
-        node = Assign(left, token, right)
-        return node
+        return Assign(left, op, right)
 
     def variable(self):
-        """
-        variable : ID
-        """
+        """variable : ID"""
         node = Var(self.current_token)
         self.eat(ID)
         return node
@@ -330,14 +339,13 @@ class Parser:
         node = self.term()
 
         while self.current_token.type in (PLUS, MINUS):
-            token = self.current_token
-            if token.type == PLUS:
+            op = self.current_token
+            if op.type == PLUS:
                 self.eat(PLUS)
-            elif token.type == MINUS:
+            elif op.type == MINUS:
                 self.eat(MINUS)
-
-            node = BinOp(left=node, op=token, right=self.term())
-
+            right = self.term()
+            node = BinOp(node, op, right)
         return node
 
     def term(self):
@@ -345,24 +353,24 @@ class Parser:
         node = self.factor()
 
         while self.current_token.type in (MUL, DIV, MOD):
-            token = self.current_token
-            if token.type == MUL:
+            op = self.current_token
+            if op.type == MUL:
                 self.eat(MUL)
-            elif token.type == DIV:
+            elif op.type == DIV:
                 self.eat(DIV)
-            elif token.type == MOD:
+            elif op.type == MOD:
                 self.eat(MOD)
-
-            node = BinOp(left=node, op=token, right=self.factor())
-
+            right = self.factor()
+            node = BinOp(node, op, right)
         return node
 
     def factor(self):
-        """factor : PLUS factor
-                  | MINUS factor
-                  | INTEGER
-                  | LPAREN expr RPAREN
-                  | variable
+        """
+        factor : PLUS factor
+               | MINUS factor
+               | INTEGER
+               | LPAREN expr RPAREN
+               | variable
         """
         token = self.current_token
         if token.type == PLUS:
@@ -382,39 +390,24 @@ class Parser:
             self.eat(RPAREN)
             return node
         else:
-            node = self.variable()
-            return node
+            return self.variable()
 
     def comparison(self):
-      """
-      comparison : expr (( EQ | NE | LT | LTE | GT | GTE ) expr)
-      """
-      node = self.expr()
-      
-      while self.current_token.type in (EQ, NE, LT, LTE, GT, GTE):
-        token = self.current_token
-        if token.type == EQ:
-          self.eat(EQ)
-        elif token.type == NE:
-          self.eat(NE)
-        elif token.type == LT:
-          self.eat(LT)
-        elif token.type == LTE:
-          self.eat(LTE)
-        elif token.type == GT:
-          self.eat(GT)
-        elif token.type == GTE:
-          self.eat(GTE)
-          
-        node = BinOp(left=node, op=token, right=self.expr())
-      
-      return node
-    
+        """
+        comparison : expr (( EQ | NE | LT | LTE | GT | GTE ) expr)?
+        """
+        node = self.expr()
+        while self.current_token.type in (EQ, NE, LT, LTE, GT, GTE):
+            op = self.current_token
+            self.eat(op.type)
+            right = self.expr()
+            node = BinOp(node, op, right)
+        return node
+
     def parse(self):
         node = self.program()
         if self.current_token.type != EOF:
             self.error()
-
         return node
 
 # --- Interpreter ---
@@ -433,38 +426,48 @@ class Interpreter(NodeVisitor):
         self.GLOBAL_SCOPE = {}
 
     def visit_BinOp(self, node):
-        if node.op.type == PLUS:
-            return self.visit(node.left) + self.visit(node.right)
-        elif node.op.type == MINUS:
-            return self.visit(node.left) - self.visit(node.right)
-        elif node.op.type == MUL:
-            return self.visit(node.left) * self.visit(node.right)
-        elif node.op.type == DIV:
-            return self.visit(node.left) // self.visit(node.right)
-        elif node.op.type == MOD:
-            return self.visit(node.left) % self.visit(node.right)
-        elif node.op.type == LT:
-            return self.visit(node.left) < self.visit(node.right)
-        elif node.op.type == LTE:
-            return self.visit(node.left) <= self.visit(node.right)
-        elif node.op.type == GT:
-            return self.visit(node.left) > self.visit(node.right)
-        elif node.op.type == GTE:
-            return self.visit(node.left) >= self.visit(node.right)
-        elif node.op.type == EQ:
-            return self.visit(node.left) == self.visit(node.right)
-        elif node.op.type == NE:
-            return self.visit(node.left) != self.visit(node.right)
+        op_type = node.op.type
+        left_val = self.visit(node.left)
+        right_val = self.visit(node.right)
+
+        if op_type == PLUS:
+            return left_val + right_val
+        elif op_type == MINUS:
+            return left_val - right_val
+        elif op_type == MUL:
+            return left_val * right_val
+        elif op_type == DIV:
+            if right_val == 0:
+                raise ZeroDivisionError("Division by zero")
+            return left_val // right_val
+        elif op_type == MOD:
+            if right_val == 0:
+                raise ZeroDivisionError("Modulo by zero")
+            return left_val % right_val
+        elif op_type == LT:
+            return int(left_val < right_val)
+        elif op_type == LTE:
+            return int(left_val <= right_val)
+        elif op_type == GT:
+            return int(left_val > right_val)
+        elif op_type == GTE:
+            return int(left_val >= right_val)
+        elif op_type == EQ:
+            return int(left_val == right_val)
+        elif op_type == NE:
+            return int(left_val != right_val)
+        else:
+            raise Exception(f"Unknown operator {op_type}")
 
     def visit_Num(self, node):
         return node.value
 
     def visit_UnaryOp(self, node):
-        op = node.op.type
-        if op == PLUS:
-            return +self.visit(node.expr)
-        elif op == MINUS:
-            return -self.visit(node.expr)
+        val = self.visit(node.expr)
+        if node.op.type == PLUS:
+            return +val
+        elif node.op.type == MINUS:
+            return -val
 
     def visit_Compound(self, node):
         for child in node.children:
@@ -472,75 +475,74 @@ class Interpreter(NodeVisitor):
 
     def visit_Assign(self, node):
         var_name = node.left.value
-        if self.GLOBAL_SCOPE.get(var_name) is None:
-          self.GLOBAL_SCOPE[var_name] = self.visit(node.right)
-        else:
-          raise Exception('Error: variable was previously declared')
+        value = self.visit(node.right)
+        self.GLOBAL_SCOPE[var_name] = value
 
     def visit_Var(self, node):
         var_name = node.value
-        val = self.GLOBAL_SCOPE.get(var_name)
-        if val is None:
-            raise NameError(var_name)
-        else:
-            return val
+        if var_name not in self.GLOBAL_SCOPE:
+            raise NameError(f"Name '{var_name}' is not defined")
+        return self.GLOBAL_SCOPE[var_name]
 
     def visit_NoOp(self, node):
         pass
-        
+
     def visit_If(self, node):
-        if self.visit(node.condition):
+        condition_val = self.visit(node.condition)
+        # If the expression is nonzero/true
+        if condition_val != 0:
             self.visit(node.then_branch)
-        elif node.else_branch is not None:
-            self.visit(node.else_branch)
+        else:
+            if node.else_branch is not None:
+                self.visit(node.else_branch)
 
     def visit_While(self, node):
-        while self.visit(node.condition):
+        while True:
+            cond_val = self.visit(node.condition)
+            if cond_val == 0:
+                break
             self.visit(node.body)
-    
+
     def visit_Print(self, node):
-        print(self.visit(node.expr))
+        val = self.visit(node.expr)
+        print(val)
 
     def visit_Input(self, node):
-        val = int(input())
-        return val
+        var_name = node.var_name
+        try:
+            value = int(input(f"Enter an integer value for {var_name}: "))
+            self.GLOBAL_SCOPE[var_name] = value
+        except ValueError:
+            raise Exception("Invalid input: Please enter an integer.")
 
     def interpret(self):
         tree = self.parser.parse()
         return self.visit(tree)
 
-def execute_simplepy(code):
-  """Executes SimplePy code and returns the content printed to standard output."""
-  lexer = Lexer(code)
-  parser = Parser(lexer)
-  interpreter = Interpreter(parser)
-  interpreter.interpret()
-
-# --- Example Usage ---
 def main():
-    import sys
-    
     if len(sys.argv) < 2:
-      print("Usage: python interpreter.py <filename.simpy>")
-      return
-    
+        print("Usage: python interpreter.py <filename.simpy>")
+        return
+
     filename = sys.argv[1]
-    
     if not filename.endswith(".simpy"):
         print("Error: Input file must have a .simpy extension")
         return
 
     try:
-      with open(filename, 'r') as file:
-          code = file.read()
+        with open(filename, 'r') as f:
+            code = f.read()
     except FileNotFoundError:
         print(f"Error: File '{filename}' not found.")
         return
-        
+
     lexer = Lexer(code)
     parser = Parser(lexer)
     interpreter = Interpreter(parser)
-    interpreter.interpret()
+    try:
+        interpreter.interpret()
+    except Exception as e:
+        print(e)
 
 if __name__ == '__main__':
     main()
